@@ -11,22 +11,11 @@ const MAX_DELAY_MS = 6 * 60 * 1000;
 const CYCLE_INTERVAL_MS = 5 * 60 * 60 * 1000;
 const POST_COOLDOWN_DAYS = 3;
 
-const DISCOVER_URLS = [
-  "https://discord.com/servers?query=programming",
-  "https://discord.com/servers?query=technology",
-  "https://discord.com/servers?query=startup",
-  "https://discord.com/servers?query=entrepreneur",
-  "https://discord.com/servers?query=business",
-  "https://discord.com/servers?query=marketing",
-  "https://discord.com/servers?query=freelance",
-  "https://discord.com/servers?query=developer",
-  "https://discord.com/servers?query=agency",
-  "https://discord.com/servers?query=saas",
-  "https://discord.com/servers?query=python",
-  "https://discord.com/servers?query=automation",
-  "https://discord.com/servers?query=lead+generation",
-  "https://discord.com/servers?query=cold+outreach",
-  "https://discord.com/servers?query=web+development",
+const SEARCH_QUERIES = [
+  "programming", "technology", "startup", "entrepreneur",
+  "business", "marketing", "freelance", "developer",
+  "agency", "saas", "python", "automation",
+  "lead generation", "cold outreach", "web development",
 ];
 
 const PROMO_CHANNEL_NAMES = [
@@ -34,22 +23,21 @@ const PROMO_CHANNEL_NAMES = [
   "for-hire","hire-me","hiring","jobs","freelance",
   "services","advertising","ads","marketplace",
   "shameless-plug","plug","showcase",
-  "share-your-work","share-your-project","projects",
-  "opportunities","gigs","work",
+  "share-your-work","projects","opportunities","gigs",
 ];
 
 const DEVHIRE_POSTS = [
   `hey, python developer in LA available for freelance work. i build websites, scrapers, automation bots, and AI integrations. flat fee, 48 hour delivery. recent work: claudiascleaningla.com and mapzap.org. DM me a scope`,
-  `python dev available now. websites, automation, scrapers, bots, AI integrations. 48hr turnaround, flat fee. $500 websites, $800 automation. built mapzap.org (live SaaS) and claudiascleaningla.com. DM me what you need`,
-  `available for freelance this week. python and node.js developer, LA based. i build scrapers, automation pipelines, bots, web apps, AI integrations. flat fee only. DM me a scope`,
+  `python dev available now. websites, automation, scrapers, bots, AI integrations. 48hr turnaround, flat fee. $500 websites, $800 automation. DM me what you need`,
+  `available for freelance this week. python and node.js developer, LA based. scrapers, automation pipelines, bots, web apps, AI integrations. flat fee only. DM me a scope`,
   `dev for hire. python, flask, node.js, puppeteer, openai API, stripe. built live production projects including a google maps SaaS and cold email pipeline. 48hr delivery, flat fee. DM me`,
 ];
 
 const MAPZAP_POSTS = [
   `built a tool that pulls 100 local business leads from Google Maps in 60 seconds as a CSV. type a business type and city, get names, phones, addresses, websites instantly. $49/month unlimited searches, free preview at mapzap.org`,
   `mapzap.org pulls 100 local business leads in 60 seconds. name, phone, address, website as a downloadable CSV. $49/month unlimited, free preview no card needed. useful for cold outreach, prospecting, agency lead gen`,
-  `sharing something useful for anyone doing cold outreach or lead gen. mapzap.org scrapes 100 local businesses from Google Maps in 60 seconds. CSV with name, phone, address, website. $49/month unlimited searches`,
-  `built mapzap.org for cold outreach prospecting. type any business niche and city, get 100 leads as a CSV instantly. $49/month unlimited, free preview available. useful for agencies, sales reps, freelancers`,
+  `sharing something useful for anyone doing cold outreach or lead gen. mapzap.org scrapes 100 local businesses from Google Maps in 60 seconds. CSV with name, phone, address, website. $49/month unlimited`,
+  `built mapzap.org for cold outreach prospecting. type any business niche and city, get 100 leads as a CSV instantly. $49/month unlimited, free preview available`,
 ];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -79,56 +67,118 @@ function wasPostedRecently(posted, key) {
 
 async function loadSession(page) {
   await page.goto("https://discord.com/channels/@me", { waitUntil: "domcontentloaded", timeout: 60000 });
-  await sleep(rand(3000, 5000));
+  await sleep(rand(4000, 6000));
   if (page.url().includes("login") || page.url().includes("welcome")) {
     throw new Error("Session expired. Run discord_login.cjs again.");
   }
   log("INFO", "Session loaded.");
 }
 
-async function scrapeServerInvites(page, discoverUrl) {
-  log("SEARCH", `Scraping: ${discoverUrl}`);
+async function searchDiscover(page, query) {
+  log("SEARCH", `Searching discover for: "${query}"`);
   try {
-    await page.goto(discoverUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+    // Click the Discover button in the left sidebar
+    const discoverClicked = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('a, button'));
+      const discover = btns.find(b =>
+        b.getAttribute('aria-label')?.toLowerCase().includes('discover') ||
+        b.href?.includes('/guild-discovery') ||
+        b.href?.includes('/servers')
+      );
+      if (discover) { discover.click(); return true; }
+      return false;
+    });
+
+    if (!discoverClicked) {
+      // Navigate directly to discover
+      await page.goto("https://discord.com/guild-discovery", { waitUntil: "domcontentloaded", timeout: 60000 });
+    }
     await sleep(rand(3000, 5000));
-    for (let i = 0; i < 4; i++) {
-      await page.evaluate(() => window.scrollBy(0, 600));
+
+    // Click the search input
+    const searchInput = await page.waitForSelector('input[aria-label="Search"], input[placeholder="Search"]', { timeout: 10000 }).catch(() => null);
+    if (!searchInput) {
+      log("SKIP", "Search input not found");
+      return [];
+    }
+
+    await searchInput.click();
+    await sleep(rand(500, 1000));
+    await searchInput.type(query, { delay: rand(50, 100) });
+    await sleep(rand(2000, 3000));
+
+    // Scroll results
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => {
+        const results = document.querySelector('[class*="scroller"], [class*="results"], main');
+        if (results) results.scrollBy(0, 400);
+      });
       await sleep(rand(1000, 2000));
     }
+
+    // Get server cards
     const servers = await page.evaluate(() => {
       const results = [];
-      const cards = Array.from(document.querySelectorAll('a[href*="/servers/"]'));
+      // Find server cards with join or visit buttons
+      const cards = Array.from(document.querySelectorAll('[class*="card"], [class*="guild"], [class*="server"]'));
       for (const card of cards) {
-        const match = card.href.match(/\/servers\/(\d+)/);
-        if (match && !results.find(r => r.id === match[1])) {
-          const name = card.querySelector('h2,h3,[class*="name"],[class*="title"]')?.innerText?.trim() || `server_${match[1]}`;
-          results.push({ id: match[1], name, href: card.href });
+        const nameEl = card.querySelector('h2, h3, [class*="name"], [class*="guildName"]');
+        const name = nameEl?.innerText?.trim();
+        if (!name) continue;
+
+        // Get invite link or server ID
+        const link = card.querySelector('a[href*="/invite/"], a[href*="discord.gg"]');
+        const inviteHref = link?.href;
+
+        // Get member count to filter small servers
+        const memberEl = card.querySelector('[class*="member"], [class*="count"]');
+        const memberText = memberEl?.innerText || '';
+
+        if (name && !results.find(r => r.name === name)) {
+          results.push({ name, inviteHref, memberText });
         }
       }
-      return results.slice(0, 15);
+      return results.slice(0, 10);
     });
-    log("SEARCH", `Found ${servers.length} servers`);
+
+    // Clear search for next query
+    await searchInput.click({ clickCount: 3 });
+    await page.keyboard.press('Backspace');
+    await sleep(rand(1000, 2000));
+
+    log("SEARCH", `Found ${servers.length} servers for "${query}"`);
     return servers;
   } catch (err) {
-    log("ERROR", `Scrape failed: ${err.message}`);
+    log("ERROR", `Search failed for "${query}": ${err.message}`);
     return [];
   }
 }
 
 async function joinAndPost(page, server, postText, posted) {
   try {
-    await page.goto(`https://discord.com/servers/${server.id}`, { waitUntil: "domcontentloaded", timeout: 60000 });
+    if (!server.inviteHref) {
+      log("SKIP", `No invite link for ${server.name}`);
+      return "no_invite";
+    }
+
+    // Go to invite
+    await page.goto(server.inviteHref, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(3000, 5000));
 
+    // Join if needed
     const joinHandle = await page.evaluateHandle(() => {
       const btns = Array.from(document.querySelectorAll('button'));
-      return btns.find(b => b.innerText?.toLowerCase().includes('join') && b.offsetParent !== null) || null;
+      return btns.find(b =>
+        b.innerText?.toLowerCase().includes('join') &&
+        b.offsetParent !== null
+      ) || null;
     });
     const joinBtn = joinHandle.asElement();
     if (joinBtn) {
       log("JOIN", `Joining ${server.name}`);
       await joinBtn.click();
-      await sleep(rand(3000, 5000));
+      await sleep(rand(4000, 6000));
+      // Dismiss welcome popup
       await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('button'));
         const dismiss = btns.find(b =>
@@ -141,6 +191,7 @@ async function joinAndPost(page, server, postText, posted) {
       await sleep(rand(2000, 3000));
     }
 
+    // Find promo channel
     const promoChannel = await page.evaluate((promoNames) => {
       const links = Array.from(document.querySelectorAll('a[href*="/channels/"]'));
       for (const link of links) {
@@ -150,9 +201,17 @@ async function joinAndPost(page, server, postText, posted) {
       return null;
     }, PROMO_CHANNEL_NAMES);
 
-    if (!promoChannel) { log("SKIP", `No promo channel in ${server.name}`); return "no_channel"; }
-    if (wasPostedRecently(posted, promoChannel.href)) { log("SKIP", `Cooldown for #${promoChannel.name}`); return "cooldown"; }
+    if (!promoChannel) {
+      log("SKIP", `No promo channel in ${server.name}`);
+      return "no_channel";
+    }
 
+    if (wasPostedRecently(posted, promoChannel.href)) {
+      log("SKIP", `Cooldown for #${promoChannel.name}`);
+      return "cooldown";
+    }
+
+    // Go to promo channel and post
     await page.goto(promoChannel.href, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(2000, 3000));
 
@@ -175,6 +234,7 @@ async function joinAndPost(page, server, postText, posted) {
     posted[promoChannel.href] = new Date().toISOString();
     savePosted(posted);
     return "posted";
+
   } catch (err) {
     log("ERROR", `Failed for ${server.name}: ${err.message}`);
     return "error";
@@ -184,6 +244,7 @@ async function joinAndPost(page, server, postText, posted) {
 async function runCycle() {
   const posted = loadPosted();
   let postsThisCycle = 0;
+
   const browser = await puppeteer.launch({
     headless: false,
     defaultViewport: null,
@@ -193,12 +254,16 @@ async function runCycle() {
   });
   const page = await browser.newPage();
   await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
   try {
     await loadSession(page);
-    const shuffled = [...DISCOVER_URLS].sort(() => Math.random() - 0.5);
-    for (const discoverUrl of shuffled) {
-      if (postsThisCycle >= MAX_POSTS_PER_CYCLE) { log("INFO", `Hit max posts. Stopping.`); break; }
-      const servers = await scrapeServerInvites(page, discoverUrl);
+    const shuffled = [...SEARCH_QUERIES].sort(() => Math.random() - 0.5);
+
+    for (const query of shuffled) {
+      if (postsThisCycle >= MAX_POSTS_PER_CYCLE) { log("INFO", "Hit max posts."); break; }
+
+      const servers = await searchDiscover(page, query);
+
       for (const server of servers) {
         if (postsThisCycle >= MAX_POSTS_PER_CYCLE) break;
         const type = postsThisCycle % 2 === 0 ? "DEVHIRE" : "MAPZAP";
@@ -216,6 +281,7 @@ async function runCycle() {
   } catch (err) {
     log("ERROR", `Cycle failed: ${err.message}`);
   }
+
   await browser.close();
   log("INFO", `Cycle complete. Posted to ${postsThisCycle} servers.`);
 }
