@@ -75,76 +75,81 @@ async function loadSession(page) {
 }
 
 async function searchDiscover(page, query) {
-  log("SEARCH", `Searching discover for: "${query}"`);
+  log("SEARCH", `Searching: "${query}"`);
   try {
-    // Click the Discover button in the left sidebar
-    const discoverClicked = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('a, button'));
-      const discover = btns.find(b =>
-        b.getAttribute('aria-label')?.toLowerCase().includes('discover') ||
-        b.href?.includes('/guild-discovery') ||
-        b.href?.includes('/servers')
+    // Navigate to guild discovery
+    await page.goto("https://discord.com/guild-discovery", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await sleep(rand(3000, 5000));
+
+    // Click the magnifying glass search icon in top right
+    const searchIconClicked = await page.evaluate(() => {
+      // Find the search button/icon in the discover header
+      const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+      const searchBtn = btns.find(b =>
+        b.getAttribute('aria-label')?.toLowerCase().includes('search') ||
+        b.querySelector('svg[class*="search"], svg[aria-label*="search"]')
       );
-      if (discover) { discover.click(); return true; }
+      if (searchBtn) { searchBtn.click(); return true; }
+      // Try clicking the magnifying glass SVG directly
+      const svgs = Array.from(document.querySelectorAll('svg'));
+      const searchSvg = svgs.find(s => s.closest('button') && s.parentElement?.className?.includes?.('search'));
+      if (searchSvg) { searchSvg.closest('button').click(); return true; }
       return false;
     });
 
-    if (!discoverClicked) {
-      // Navigate directly to discover
-      await page.goto("https://discord.com/guild-discovery", { waitUntil: "domcontentloaded", timeout: 60000 });
+    if (!searchIconClicked) {
+      // Try clicking by position — magnifying glass is top right of discover
+      log("INFO", "Trying to click search icon by selector...");
+      const searchBtn = await page.$('[class*="searchIcon"], [class*="search-icon"], [aria-label="Search"]');
+      if (searchBtn) {
+        await searchBtn.click();
+      } else {
+        // Last resort — click the search input directly if already visible
+        log("INFO", "Looking for search input directly...");
+      }
     }
-    await sleep(rand(3000, 5000));
 
-    // Click the search input
-    const searchInput = await page.waitForSelector('input[aria-label="Search"], input[placeholder="Search"]', { timeout: 10000 }).catch(() => null);
+    await sleep(rand(1500, 2500));
+
+    // Wait for search input to appear and type query
+    const searchInput = await page.waitForSelector(
+      'input[placeholder="Search"], input[aria-label="Search"], input[data-mana-component="text-input"]',
+      { timeout: 8000 }
+    ).catch(() => null);
+
     if (!searchInput) {
-      log("SKIP", "Search input not found");
+      log("SKIP", `Search input not found for "${query}"`);
       return [];
     }
 
     await searchInput.click();
     await sleep(rand(500, 1000));
+    // Clear and type
+    await searchInput.evaluate(el => el.value = '');
     await searchInput.type(query, { delay: rand(50, 100) });
-    await sleep(rand(2000, 3000));
+    await sleep(rand(2500, 4000));
 
-    // Scroll results
-    for (let i = 0; i < 3; i++) {
-      await page.evaluate(() => {
-        const results = document.querySelector('[class*="scroller"], [class*="results"], main');
-        if (results) results.scrollBy(0, 400);
-      });
-      await sleep(rand(1000, 2000));
+    // Scroll to load results
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => window.scrollBy(0, 400));
+      await sleep(rand(1000, 1500));
     }
 
-    // Get server cards
+    // Extract server cards and invite links
     const servers = await page.evaluate(() => {
       const results = [];
-      // Find server cards with join or visit buttons
-      const cards = Array.from(document.querySelectorAll('[class*="card"], [class*="guild"], [class*="server"]'));
-      for (const card of cards) {
-        const nameEl = card.querySelector('h2, h3, [class*="name"], [class*="guildName"]');
-        const name = nameEl?.innerText?.trim();
-        if (!name) continue;
-
-        // Get invite link or server ID
-        const link = card.querySelector('a[href*="/invite/"], a[href*="discord.gg"]');
-        const inviteHref = link?.href;
-
-        // Get member count to filter small servers
-        const memberEl = card.querySelector('[class*="member"], [class*="count"]');
-        const memberText = memberEl?.innerText || '';
-
-        if (name && !results.find(r => r.name === name)) {
-          results.push({ name, inviteHref, memberText });
+      // Look for server cards with invite links
+      const inviteLinks = Array.from(document.querySelectorAll('a[href*="discord.gg"], a[href*="/invite/"]'));
+      for (const link of inviteLinks) {
+        const card = link.closest('[class*="card"], [class*="guild"], li, article') || link.parentElement;
+        const nameEl = card?.querySelector('h2, h3, [class*="name"], [class*="guildName"], strong');
+        const name = nameEl?.innerText?.trim() || link.innerText?.trim() || link.href;
+        if (name && !results.find(r => r.inviteHref === link.href)) {
+          results.push({ name, inviteHref: link.href });
         }
       }
       return results.slice(0, 10);
     });
-
-    // Clear search for next query
-    await searchInput.click({ clickCount: 3 });
-    await page.keyboard.press('Backspace');
-    await sleep(rand(1000, 2000));
 
     log("SEARCH", `Found ${servers.length} servers for "${query}"`);
     return servers;
@@ -161,7 +166,6 @@ async function joinAndPost(page, server, postText, posted) {
       return "no_invite";
     }
 
-    // Go to invite
     await page.goto(server.inviteHref, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(3000, 5000));
 
@@ -178,7 +182,6 @@ async function joinAndPost(page, server, postText, posted) {
       log("JOIN", `Joining ${server.name}`);
       await joinBtn.click();
       await sleep(rand(4000, 6000));
-      // Dismiss welcome popup
       await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('button'));
         const dismiss = btns.find(b =>
@@ -211,7 +214,6 @@ async function joinAndPost(page, server, postText, posted) {
       return "cooldown";
     }
 
-    // Go to promo channel and post
     await page.goto(promoChannel.href, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(2000, 3000));
 
@@ -261,9 +263,7 @@ async function runCycle() {
 
     for (const query of shuffled) {
       if (postsThisCycle >= MAX_POSTS_PER_CYCLE) { log("INFO", "Hit max posts."); break; }
-
       const servers = await searchDiscover(page, query);
-
       for (const server of servers) {
         if (postsThisCycle >= MAX_POSTS_PER_CYCLE) break;
         const type = postsThisCycle % 2 === 0 ? "DEVHIRE" : "MAPZAP";
