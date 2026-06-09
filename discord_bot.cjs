@@ -5,18 +5,11 @@ const fs = require("fs");
 const POSTED_PATH = "./posted_servers.json";
 const LOG_PATH = "./discord_bot.log";
 
-const MAX_POSTS_PER_CYCLE = 20;
+const MAX_POSTS_PER_CYCLE = 25;
 const MIN_DELAY_MS = 3 * 60 * 1000;
-const MAX_DELAY_MS = 6 * 60 * 1000;
+const MAX_DELAY_MS = 5 * 60 * 1000;
 const CYCLE_INTERVAL_MS = 5 * 60 * 60 * 1000;
 const POST_COOLDOWN_DAYS = 3;
-
-const SEARCH_QUERIES = [
-  "programming", "technology", "startup", "entrepreneur",
-  "business", "marketing", "freelance", "developer",
-  "agency", "saas", "python", "automation",
-  "lead generation", "cold outreach", "web development",
-];
 
 const PROMO_CHANNEL_NAMES = [
   "promote","self-promo","self-promotion","promo",
@@ -24,6 +17,8 @@ const PROMO_CHANNEL_NAMES = [
   "services","advertising","ads","marketplace",
   "shameless-plug","plug","showcase",
   "share-your-work","projects","opportunities","gigs",
+  "self-advertise","advertise","promotion","promotions",
+  "share","collab","collaboration","networking",
 ];
 
 const DEVHIRE_POSTS = [
@@ -74,156 +69,87 @@ async function loadSession(page) {
   log("INFO", "Session loaded.");
 }
 
-async function searchDiscover(page, query) {
-  log("SEARCH", `Searching: "${query}"`);
-  try {
-    // Navigate to guild discovery
-    await page.goto("https://discord.com/guild-discovery", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await sleep(rand(3000, 5000));
-
-    // Click the magnifying glass search icon in top right
-    const searchIconClicked = await page.evaluate(() => {
-      // Find the search button/icon in the discover header
-      const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
-      const searchBtn = btns.find(b =>
-        b.getAttribute('aria-label')?.toLowerCase().includes('search') ||
-        b.querySelector('svg[class*="search"], svg[aria-label*="search"]')
-      );
-      if (searchBtn) { searchBtn.click(); return true; }
-      // Try clicking the magnifying glass SVG directly
-      const svgs = Array.from(document.querySelectorAll('svg'));
-      const searchSvg = svgs.find(s => s.closest('button') && s.parentElement?.className?.includes?.('search'));
-      if (searchSvg) { searchSvg.closest('button').click(); return true; }
-      return false;
-    });
-
-    if (!searchIconClicked) {
-      // Try clicking by position — magnifying glass is top right of discover
-      log("INFO", "Trying to click search icon by selector...");
-      const searchBtn = await page.$('[class*="searchIcon"], [class*="search-icon"], [aria-label="Search"]');
-      if (searchBtn) {
-        await searchBtn.click();
-      } else {
-        // Last resort — click the search input directly if already visible
-        log("INFO", "Looking for search input directly...");
-      }
-    }
-
-    await sleep(rand(1500, 2500));
-
-    // Wait for search input to appear and type query
-    const searchInput = await page.waitForSelector(
-      'input[placeholder="Search"], input[aria-label="Search"], input[data-mana-component="text-input"]',
-      { timeout: 8000 }
-    ).catch(() => null);
-
-    if (!searchInput) {
-      log("SKIP", `Search input not found for "${query}"`);
-      return [];
-    }
-
-    await searchInput.click();
-    await sleep(rand(500, 1000));
-    // Clear and type
-    await searchInput.evaluate(el => el.value = '');
-    await searchInput.type(query, { delay: rand(50, 100) });
-    await sleep(rand(2500, 4000));
-
-    // Scroll to load results
-    for (let i = 0; i < 4; i++) {
-      await page.evaluate(() => window.scrollBy(0, 400));
-      await sleep(rand(1000, 1500));
-    }
-
-    // Extract server cards and invite links
-    const servers = await page.evaluate(() => {
-      const results = [];
-      // Look for server cards with invite links
-      const inviteLinks = Array.from(document.querySelectorAll('a[href*="discord.gg"], a[href*="/invite/"]'));
-      for (const link of inviteLinks) {
-        const card = link.closest('[class*="card"], [class*="guild"], li, article') || link.parentElement;
-        const nameEl = card?.querySelector('h2, h3, [class*="name"], [class*="guildName"], strong');
-        const name = nameEl?.innerText?.trim() || link.innerText?.trim() || link.href;
-        if (name && !results.find(r => r.inviteHref === link.href)) {
-          results.push({ name, inviteHref: link.href });
+async function getJoinedServers(page) {
+  log("INFO", "Getting list of joined servers...");
+  const servers = await page.evaluate(() => {
+    const results = [];
+    // Find all server icons in the left sidebar
+    const serverLinks = Array.from(document.querySelectorAll('a[href*="/channels/"]'));
+    for (const link of serverLinks) {
+      const match = link.href.match(/\/channels\/(\d+)/);
+      if (match) {
+        const serverId = match[1];
+        if (serverId === '@me') continue;
+        const name = link.getAttribute('aria-label') || link.getAttribute('data-dnd-name') || serverId;
+        if (!results.find(r => r.id === serverId)) {
+          results.push({ id: serverId, name, href: link.href });
         }
       }
-      return results.slice(0, 10);
-    });
-
-    log("SEARCH", `Found ${servers.length} servers for "${query}"`);
-    return servers;
-  } catch (err) {
-    log("ERROR", `Search failed for "${query}": ${err.message}`);
-    return [];
-  }
+    }
+    return results;
+  });
+  log("INFO", `Found ${servers.length} joined servers in sidebar`);
+  return servers;
 }
 
-async function joinAndPost(page, server, postText, posted) {
+async function findAndPostInServer(page, server, postText, posted) {
   try {
-    if (!server.inviteHref) {
-      log("SKIP", `No invite link for ${server.name}`);
-      return "no_invite";
+    // Navigate to server
+    const serverUrl = `https://discord.com/channels/${server.id}`;
+    await page.goto(serverUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await sleep(rand(2000, 4000));
+
+    // Check if redirected to a channel already
+    const currentUrl = page.url();
+    if (currentUrl.includes('/channels/') && !currentUrl.endsWith(`/${server.id}`)) {
+      // We're in a channel — look for promo channels in sidebar
     }
 
-    await page.goto(server.inviteHref, { waitUntil: "domcontentloaded", timeout: 60000 });
-    await sleep(rand(3000, 5000));
-
-    // Join if needed
-    const joinHandle = await page.evaluateHandle(() => {
-      const btns = Array.from(document.querySelectorAll('button'));
-      return btns.find(b =>
-        b.innerText?.toLowerCase().includes('join') &&
-        b.offsetParent !== null
-      ) || null;
-    });
-    const joinBtn = joinHandle.asElement();
-    if (joinBtn) {
-      log("JOIN", `Joining ${server.name}`);
-      await joinBtn.click();
-      await sleep(rand(4000, 6000));
-      await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button'));
-        const dismiss = btns.find(b =>
-          b.innerText?.toLowerCase().includes('get started') ||
-          b.innerText?.toLowerCase().includes('browse channels') ||
-          b.getAttribute('aria-label')?.toLowerCase().includes('close')
-        );
-        if (dismiss) dismiss.click();
-      });
-      await sleep(rand(2000, 3000));
-    }
-
-    // Find promo channel
+    // Find promo channel in sidebar
     const promoChannel = await page.evaluate((promoNames) => {
       const links = Array.from(document.querySelectorAll('a[href*="/channels/"]'));
       for (const link of links) {
-        const name = (link.getAttribute('aria-label') || link.innerText || '').toLowerCase().trim();
-        if (promoNames.some(p => name.includes(p))) return { href: link.href, name };
+        const label = (link.getAttribute('aria-label') || '').toLowerCase();
+        const text = (link.innerText || '').toLowerCase().trim();
+        const name = label || text;
+        if (promoNames.some(p => name.includes(p))) {
+          return { href: link.href, name };
+        }
       }
       return null;
     }, PROMO_CHANNEL_NAMES);
 
     if (!promoChannel) {
-      log("SKIP", `No promo channel in ${server.name}`);
       return "no_channel";
     }
 
     if (wasPostedRecently(posted, promoChannel.href)) {
-      log("SKIP", `Cooldown for #${promoChannel.name}`);
       return "cooldown";
     }
 
+    // Navigate to promo channel
     await page.goto(promoChannel.href, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(2000, 3000));
 
+    // Check if we can post (not read-only)
+    const canPost = await page.evaluate(() => {
+      const input = document.querySelector('[data-slate-editor="true"]') ||
+                    document.querySelector('[contenteditable="true"][role="textbox"]');
+      return !!input;
+    });
+
+    if (!canPost) {
+      return "read_only";
+    }
+
+    // Find input and type
     const inputHandle = await page.evaluateHandle(() =>
       document.querySelector('[data-slate-editor="true"]') ||
       document.querySelector('[contenteditable="true"][role="textbox"]') ||
       null
     );
     const input = inputHandle.asElement();
-    if (!input) { log("SKIP", `No input in #${promoChannel.name}`); return "no_input"; }
+    if (!input) return "no_input";
 
     await input.click();
     await sleep(rand(1000, 2000));
@@ -259,25 +185,39 @@ async function runCycle() {
 
   try {
     await loadSession(page);
-    const shuffled = [...SEARCH_QUERIES].sort(() => Math.random() - 0.5);
 
-    for (const query of shuffled) {
-      if (postsThisCycle >= MAX_POSTS_PER_CYCLE) { log("INFO", "Hit max posts."); break; }
-      const servers = await searchDiscover(page, query);
-      for (const server of servers) {
-        if (postsThisCycle >= MAX_POSTS_PER_CYCLE) break;
-        const type = postsThisCycle % 2 === 0 ? "DEVHIRE" : "MAPZAP";
-        const postText = type === "DEVHIRE" ? pick(DEVHIRE_POSTS) : pick(MAPZAP_POSTS);
-        const result = await joinAndPost(page, server, postText, posted);
-        if (result === "posted") {
-          postsThisCycle++;
-          log("INFO", `${postsThisCycle}/${MAX_POSTS_PER_CYCLE} posts. Waiting ${Math.round(MIN_DELAY_MS/60000)} to ${Math.round(MAX_DELAY_MS/60000)}min...`);
-          await sleep(rand(MIN_DELAY_MS, MAX_DELAY_MS));
-        }
-        await sleep(rand(3000, 6000));
-      }
-      await sleep(rand(5000, 10000));
+    // Get all joined servers from sidebar
+    const servers = await getJoinedServers(page);
+
+    if (!servers.length) {
+      log("INFO", "No servers found in sidebar. Scrolling to load more...");
     }
+
+    // Shuffle servers each cycle for variety
+    servers.sort(() => Math.random() - 0.5);
+
+    for (const server of servers) {
+      if (postsThisCycle >= MAX_POSTS_PER_CYCLE) {
+        log("INFO", `Hit max posts (${MAX_POSTS_PER_CYCLE}). Stopping.`);
+        break;
+      }
+
+      const type = postsThisCycle % 2 === 0 ? "DEVHIRE" : "MAPZAP";
+      const postText = type === "DEVHIRE" ? pick(DEVHIRE_POSTS) : pick(MAPZAP_POSTS);
+
+      const result = await findAndPostInServer(page, server, postText, posted);
+
+      if (result === "posted") {
+        postsThisCycle++;
+        log("INFO", `${postsThisCycle}/${MAX_POSTS_PER_CYCLE} posts. Waiting ${Math.round(MIN_DELAY_MS/60000)} to ${Math.round(MAX_DELAY_MS/60000)}min...`);
+        await sleep(rand(MIN_DELAY_MS, MAX_DELAY_MS));
+      } else if (result === "no_channel" || result === "cooldown" || result === "read_only") {
+        // Skip silently
+      }
+
+      await sleep(rand(2000, 4000));
+    }
+
   } catch (err) {
     log("ERROR", `Cycle failed: ${err.message}`);
   }
