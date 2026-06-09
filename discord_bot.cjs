@@ -71,24 +71,33 @@ async function loadSession(page) {
 
 async function getJoinedServers(page) {
   log("INFO", "Getting list of joined servers...");
+
+  // Scroll the server sidebar to load all servers
+  await page.evaluate(() => {
+    const sidebar = document.querySelector('[class*="guilds"], [aria-label="Servers sidebar"]');
+    if (sidebar) sidebar.scrollTop = 99999;
+  });
+  await page.waitForFunction(() => {
+    return document.querySelectorAll('[data-list-item-id^="guildsnav___"]').length > 5;
+  }, { timeout: 10000 }).catch(() => {});
+
   const servers = await page.evaluate(() => {
     const results = [];
-    // Find all server icons in the left sidebar
-    const serverLinks = Array.from(document.querySelectorAll('a[href*="/channels/"]'));
-    for (const link of serverLinks) {
-      const match = link.href.match(/\/channels\/(\d+)/);
-      if (match) {
-        const serverId = match[1];
-        if (serverId === '@me') continue;
-        const name = link.getAttribute('aria-label') || link.getAttribute('data-dnd-name') || serverId;
-        if (!results.find(r => r.id === serverId)) {
-          results.push({ id: serverId, name, href: link.href });
-        }
+    const items = Array.from(document.querySelectorAll('[data-list-item-id^="guildsnav___"]'));
+    for (const item of items) {
+      const rawId = item.getAttribute('data-list-item-id');
+      const serverId = rawId.replace('guildsnav___', '');
+      if (!serverId || serverId === 'home' || serverId.length < 5) continue;
+      const nameEl = item.querySelector('[aria-label], [class*="name"]');
+      const name = nameEl?.getAttribute('aria-label') || nameEl?.innerText || serverId;
+      if (!results.find(r => r.id === serverId)) {
+        results.push({ id: serverId, name });
       }
     }
     return results;
   });
-  log("INFO", `Found ${servers.length} joined servers in sidebar`);
+
+  log("INFO", `Found ${servers.length} joined servers`);
   return servers;
 }
 
