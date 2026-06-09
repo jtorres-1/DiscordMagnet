@@ -1,0 +1,6 @@
+node_modules/
+session.json
+package-lock.json
+discord_profile/
+posted_servers.json
+discord_bot.log
