@@ -35,6 +35,13 @@ const MAPZAP_POSTS = [
   `built mapzap.org for cold outreach prospecting. type any business niche and city, get 100 leads as a CSV instantly. $49/month unlimited, free preview available`,
 ];
 
+const CALLDONE_POSTS = [
+  `built an AI receptionist for local businesses that answers every call 24/7. handles FAQs, captures leads, books appointments, texts you a summary after every call. $500/month, no setup fee, live in 48hrs. demo: call (563) 287-1146 or visit calldone.org`,
+  `if you run a business and miss calls when you're busy or closed — calldone.org answers every call 24/7, sounds like a real person, captures every lead. $500/month flat, cancel anytime. hear it live: (563) 287-1146`,
+  `sharing something for any business owner who loses customers from missed calls. CallDone is an AI receptionist that answers 24/7, trained on your business, texts you after every call. $500/month no contracts. calldone.org`,
+  `built calldone.org for small business owners. AI receptionist answers every call 24/7, handles questions, captures caller info, texts you a summary instantly. $500/month, live in 48 hours, no setup fee. demo: (563) 287-1146`,
+];
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -71,8 +78,6 @@ async function loadSession(page) {
 
 async function getJoinedServers(page) {
   log("INFO", "Getting list of joined servers...");
-
-  // Scroll the server sidebar to load all servers
   await page.evaluate(() => {
     const sidebar = document.querySelector('[class*="guilds"], [aria-label="Servers sidebar"]');
     if (sidebar) sidebar.scrollTop = 99999;
@@ -103,18 +108,10 @@ async function getJoinedServers(page) {
 
 async function findAndPostInServer(page, server, postText, posted) {
   try {
-    // Navigate to server
     const serverUrl = `https://discord.com/channels/${server.id}`;
     await page.goto(serverUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(2000, 4000));
 
-    // Check if redirected to a channel already
-    const currentUrl = page.url();
-    if (currentUrl.includes('/channels/') && !currentUrl.endsWith(`/${server.id}`)) {
-      // We're in a channel — look for promo channels in sidebar
-    }
-
-    // Find promo channel in sidebar
     const promoChannel = await page.evaluate((promoNames) => {
       const links = Array.from(document.querySelectorAll('a[href*="/channels/"]'));
       for (const link of links) {
@@ -128,30 +125,20 @@ async function findAndPostInServer(page, server, postText, posted) {
       return null;
     }, PROMO_CHANNEL_NAMES);
 
-    if (!promoChannel) {
-      return "no_channel";
-    }
+    if (!promoChannel) return "no_channel";
+    if (wasPostedRecently(posted, promoChannel.href)) return "cooldown";
 
-    if (wasPostedRecently(posted, promoChannel.href)) {
-      return "cooldown";
-    }
-
-    // Navigate to promo channel
     await page.goto(promoChannel.href, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(2000, 3000));
 
-    // Check if we can post (not read-only)
     const canPost = await page.evaluate(() => {
       const input = document.querySelector('[data-slate-editor="true"]') ||
                     document.querySelector('[contenteditable="true"][role="textbox"]');
       return !!input;
     });
 
-    if (!canPost) {
-      return "read_only";
-    }
+    if (!canPost) return "read_only";
 
-    // Find input and type
     const inputHandle = await page.evaluateHandle(() =>
       document.querySelector('[data-slate-editor="true"]') ||
       document.querySelector('[contenteditable="true"][role="textbox"]') ||
@@ -194,15 +181,7 @@ async function runCycle() {
 
   try {
     await loadSession(page);
-
-    // Get all joined servers from sidebar
     const servers = await getJoinedServers(page);
-
-    if (!servers.length) {
-      log("INFO", "No servers found in sidebar. Scrolling to load more...");
-    }
-
-    // Shuffle servers each cycle for variety
     servers.sort(() => Math.random() - 0.5);
 
     for (const server of servers) {
@@ -211,8 +190,12 @@ async function runCycle() {
         break;
       }
 
-      const type = postsThisCycle % 2 === 0 ? "DEVHIRE" : "MAPZAP";
-      const postText = type === "DEVHIRE" ? pick(DEVHIRE_POSTS) : pick(MAPZAP_POSTS);
+      // Rotate DEVHIRE, MAPZAP, CALLDONE evenly
+      const rotation = postsThisCycle % 3;
+      let postText;
+      if (rotation === 0) postText = pick(DEVHIRE_POSTS);
+      else if (rotation === 1) postText = pick(MAPZAP_POSTS);
+      else postText = pick(CALLDONE_POSTS);
 
       const result = await findAndPostInServer(page, server, postText, posted);
 
@@ -220,8 +203,6 @@ async function runCycle() {
         postsThisCycle++;
         log("INFO", `${postsThisCycle}/${MAX_POSTS_PER_CYCLE} posts. Waiting ${Math.round(MIN_DELAY_MS/60000)} to ${Math.round(MAX_DELAY_MS/60000)}min...`);
         await sleep(rand(MIN_DELAY_MS, MAX_DELAY_MS));
-      } else if (result === "no_channel" || result === "cooldown" || result === "read_only") {
-        // Skip silently
       }
 
       await sleep(rand(2000, 4000));
