@@ -1,16 +1,13 @@
 require("dotenv").config();
 const puppeteer = require("puppeteer");
 const fs = require("fs");
-
 const POSTED_PATH = "./posted_servers.json";
 const LOG_PATH = "./discord_bot.log";
-
 const MAX_POSTS_PER_CYCLE = 25;
 const MIN_DELAY_MS = 3 * 60 * 1000;
 const MAX_DELAY_MS = 5 * 60 * 1000;
 const CYCLE_INTERVAL_MS = 5 * 60 * 60 * 1000;
 const POST_COOLDOWN_DAYS = 3;
-
 const PROMO_CHANNEL_NAMES = [
   "promote","self-promo","self-promotion","promo",
   "for-hire","hire-me","hiring","jobs","freelance",
@@ -20,53 +17,50 @@ const PROMO_CHANNEL_NAMES = [
   "self-advertise","advertise","promotion","promotions",
   "share","collab","collaboration","networking",
 ];
-
 const DEVHIRE_POSTS = [
   `hey, python developer in LA available for freelance work. i build websites, scrapers, automation bots, and AI integrations. flat fee, 48 hour delivery. recent work: claudiascleaningla.com and mapzap.org. DM me a scope`,
   `python dev available now. websites, automation, scrapers, bots, AI integrations. 48hr turnaround, flat fee. $500 websites, $800 automation. DM me what you need`,
   `available for freelance this week. python and node.js developer, LA based. scrapers, automation pipelines, bots, web apps, AI integrations. flat fee only. DM me a scope`,
   `dev for hire. python, flask, node.js, puppeteer, openai API, stripe. built live production projects including a google maps SaaS and cold email pipeline. 48hr delivery, flat fee. DM me`,
 ];
-
 const MAPZAP_POSTS = [
   `built a tool that pulls 100 local business leads from Google Maps in 60 seconds as a CSV. type a business type and city, get names, phones, addresses, websites instantly. $49/month unlimited searches, free preview at mapzap.org`,
   `mapzap.org pulls 100 local business leads in 60 seconds. name, phone, address, website as a downloadable CSV. $49/month unlimited, free preview no card needed. useful for cold outreach, prospecting, agency lead gen`,
   `sharing something useful for anyone doing cold outreach or lead gen. mapzap.org scrapes 100 local businesses from Google Maps in 60 seconds. CSV with name, phone, address, website. $49/month unlimited`,
   `built mapzap.org for cold outreach prospecting. type any business niche and city, get 100 leads as a CSV instantly. $49/month unlimited, free preview available`,
 ];
-
 const CALLDONE_POSTS = [
   `built an AI receptionist for local businesses that answers every call 24/7. handles FAQs, captures leads, books appointments, texts you a summary after every call. $500/month, no setup fee, live in 48hrs. demo: call (563) 287-1146 or visit calldone.org`,
   `if you run a business and miss calls when you're busy or closed — calldone.org answers every call 24/7, sounds like a real person, captures every lead. $500/month flat, cancel anytime. hear it live: (563) 287-1146`,
   `sharing something for any business owner who loses customers from missed calls. CallDone is an AI receptionist that answers 24/7, trained on your business, texts you after every call. $500/month no contracts. calldone.org`,
   `built calldone.org for small business owners. AI receptionist answers every call 24/7, handles questions, captures caller info, texts you a summary instantly. $500/month, live in 48 hours, no setup fee. demo: (563) 287-1146`,
 ];
-
+const AGENCYHIRE_POSTS = [
+  `built an automated outreach system that sends 1000+ targeted messages per day across Reddit, Facebook, Discord, and X. finds buyers in your niche, messages them automatically, runs 24/7. deploying it for agencies this week. $1,500 flat fee, 48 hour setup, $500/month retainer. proof it works: mapzap.org. DM me if interested or start here: https://buy.stripe.com/9B6eVd7vteL23kedQ22Ry0d`,
+  `if you run an agency and do outreach manually this might help. i built a 7-channel automation stack that hits Reddit, Facebook, Discord, and X simultaneously. 1000+ targeted messages per day to verified buyers. $1,500 to deploy on your accounts in 48 hours. $500/month to keep it running. built and proved on my own products: mapzap.org. DM me a scope`,
+  `scale your agency outreach without hiring anyone. automated system targets your niche across Reddit, Facebook, Discord, and X. sends 1000+ messages per day to people actively looking for your service. $1,500 setup, 48hr delivery, $500/month retainer. https://buy.stripe.com/9B6eVd7vteL23kedQ22Ry0d`,
+  `automate what you're doing manually for your clients. full outreach stack deployed on your agency accounts in 48 hours. Reddit DMs, Facebook group comments, Discord posts, X replies all running 24/7. $1,500 flat, $500/month after. proof: mapzap.org. DM me`,
+];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
-
 function log(tag, msg) {
   const line = `[${new Date().toLocaleTimeString()}] ${tag}: ${msg}`;
   console.log(line);
   fs.appendFileSync(LOG_PATH, line + "\n");
 }
-
 function loadPosted() {
   if (!fs.existsSync(POSTED_PATH)) return {};
   try { return JSON.parse(fs.readFileSync(POSTED_PATH)); } catch { return {}; }
 }
-
 function savePosted(posted) {
   fs.writeFileSync(POSTED_PATH, JSON.stringify(posted, null, 2));
 }
-
 function wasPostedRecently(posted, key) {
   if (!posted[key]) return false;
   const diffDays = (new Date() - new Date(posted[key])) / (1000 * 60 * 60 * 24);
   return diffDays < POST_COOLDOWN_DAYS;
 }
-
 async function loadSession(page) {
   await page.goto("https://discord.com/channels/@me", { waitUntil: "domcontentloaded", timeout: 60000 });
   await sleep(rand(4000, 6000));
@@ -75,7 +69,6 @@ async function loadSession(page) {
   }
   log("INFO", "Session loaded.");
 }
-
 async function getJoinedServers(page) {
   log("INFO", "Getting list of joined servers...");
   await page.evaluate(() => {
@@ -85,7 +78,6 @@ async function getJoinedServers(page) {
   await page.waitForFunction(() => {
     return document.querySelectorAll('[data-list-item-id^="guildsnav___"]').length > 5;
   }, { timeout: 10000 }).catch(() => {});
-
   const servers = await page.evaluate(() => {
     const results = [];
     const items = Array.from(document.querySelectorAll('[data-list-item-id^="guildsnav___"]'));
@@ -101,17 +93,14 @@ async function getJoinedServers(page) {
     }
     return results;
   });
-
   log("INFO", `Found ${servers.length} joined servers`);
   return servers;
 }
-
 async function findAndPostInServer(page, server, postText, posted) {
   try {
     const serverUrl = `https://discord.com/channels/${server.id}`;
     await page.goto(serverUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(2000, 4000));
-
     const promoChannel = await page.evaluate((promoNames) => {
       const links = Array.from(document.querySelectorAll('a[href*="/channels/"]'));
       for (const link of links) {
@@ -124,21 +113,16 @@ async function findAndPostInServer(page, server, postText, posted) {
       }
       return null;
     }, PROMO_CHANNEL_NAMES);
-
     if (!promoChannel) return "no_channel";
     if (wasPostedRecently(posted, promoChannel.href)) return "cooldown";
-
     await page.goto(promoChannel.href, { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(rand(2000, 3000));
-
     const canPost = await page.evaluate(() => {
       const input = document.querySelector('[data-slate-editor="true"]') ||
                     document.querySelector('[contenteditable="true"][role="textbox"]');
       return !!input;
     });
-
     if (!canPost) return "read_only";
-
     const inputHandle = await page.evaluateHandle(() =>
       document.querySelector('[data-slate-editor="true"]') ||
       document.querySelector('[contenteditable="true"][role="textbox"]') ||
@@ -146,29 +130,24 @@ async function findAndPostInServer(page, server, postText, posted) {
     );
     const input = inputHandle.asElement();
     if (!input) return "no_input";
-
     await input.click();
     await sleep(rand(1000, 2000));
     await page.keyboard.type(postText, { delay: rand(20, 50) });
     await sleep(rand(1500, 2500));
     await page.keyboard.press('Enter');
     await sleep(rand(2000, 4000));
-
     log("POSTED", `${server.name} → #${promoChannel.name}`);
     posted[promoChannel.href] = new Date().toISOString();
     savePosted(posted);
     return "posted";
-
   } catch (err) {
     log("ERROR", `Failed for ${server.name}: ${err.message}`);
     return "error";
   }
 }
-
 async function runCycle() {
   const posted = loadPosted();
   let postsThisCycle = 0;
-
   const browser = await puppeteer.launch({
     headless: false,
     defaultViewport: null,
@@ -178,44 +157,35 @@ async function runCycle() {
   });
   const page = await browser.newPage();
   await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-
   try {
     await loadSession(page);
     const servers = await getJoinedServers(page);
     servers.sort(() => Math.random() - 0.5);
-
     for (const server of servers) {
       if (postsThisCycle >= MAX_POSTS_PER_CYCLE) {
         log("INFO", `Hit max posts (${MAX_POSTS_PER_CYCLE}). Stopping.`);
         break;
       }
-
-      // Rotate DEVHIRE, MAPZAP, CALLDONE evenly
-      const rotation = postsThisCycle % 3;
+      const rotation = postsThisCycle % 4;
       let postText;
       if (rotation === 0) postText = pick(DEVHIRE_POSTS);
       else if (rotation === 1) postText = pick(MAPZAP_POSTS);
-      else postText = pick(CALLDONE_POSTS);
-
+      else if (rotation === 2) postText = pick(CALLDONE_POSTS);
+      else postText = pick(AGENCYHIRE_POSTS);
       const result = await findAndPostInServer(page, server, postText, posted);
-
       if (result === "posted") {
         postsThisCycle++;
         log("INFO", `${postsThisCycle}/${MAX_POSTS_PER_CYCLE} posts. Waiting ${Math.round(MIN_DELAY_MS/60000)} to ${Math.round(MAX_DELAY_MS/60000)}min...`);
         await sleep(rand(MIN_DELAY_MS, MAX_DELAY_MS));
       }
-
       await sleep(rand(2000, 4000));
     }
-
   } catch (err) {
     log("ERROR", `Cycle failed: ${err.message}`);
   }
-
   await browser.close();
   log("INFO", `Cycle complete. Posted to ${postsThisCycle} servers.`);
 }
-
 (async () => {
   console.log("=".repeat(60));
   console.log("DiscordMagnet -- Server Poster");
