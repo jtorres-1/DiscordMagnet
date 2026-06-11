@@ -166,6 +166,7 @@ async function runCycle() {
         log("INFO", `Hit max posts (${MAX_POSTS_PER_CYCLE}). Stopping.`);
         break;
       }
+      // Rotate DEVHIRE, MAPZAP, CALLDONE, AGENCYHIRE evenly
       const rotation = postsThisCycle % 4;
       let postText;
       if (rotation === 0) postText = pick(DEVHIRE_POSTS);
