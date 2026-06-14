@@ -42,10 +42,10 @@ const AGENCYHIRE_POSTS = [
   `automate what you're doing manually for your clients. full outreach stack deployed on your agency accounts in 48 hours. Reddit DMs, Facebook group comments, Discord posts, X replies all running 24/7. $1,500 flat, $500/month after. proof: mapzap.org. DM me`,
 ];
 const AUTOSUB_POSTS = [
-  `built a tool called AutoSub that automates your Reddit outreach. connect your Reddit account, set your offer and target keywords, it finds buyers posting on Reddit and DMs them automatically 24/7. 200+ targeted messages per day. $47/month, cancel anytime. autosub.mooo.com`,
-  `if you do cold outreach on Reddit manually this might save you hours every day. AutoSub finds people actively posting about needing what you sell and DMs them for you automatically. set it up once, runs forever. $47/month at autosub.mooo.com`,
-  `sharing something for agency owners and freelancers doing Reddit outreach. AutoSub automates the whole thing. scrapes Reddit globally for buyer intent posts, sends your DM automatically, shows you replies in a live dashboard. $47/month. autosub.mooo.com`,
-  `AutoSub runs your Reddit DM outreach on autopilot. you set your keywords and offer, it finds people who need what you sell and messages them 24/7. built it myself and use it for all my products. $47/month at autosub.mooo.com`,
+  `built a tool called AutoSub that automates your Reddit outreach. connect your Reddit account, set your offer and target keywords, it finds buyers posting on Reddit and DMs them automatically 24/7. 200+ targeted messages per day. $47/month, cancel anytime. autosub.online`,
+  `if you do cold outreach on Reddit manually this might save you hours every day. AutoSub finds people actively posting about needing what you sell and DMs them for you automatically. set it up once, runs forever. $47/month at autosub.online`,
+  `sharing something for agency owners and freelancers doing Reddit outreach. AutoSub automates the whole thing. scrapes Reddit globally for buyer intent posts, sends your DM automatically, shows you replies in a live dashboard. $47/month. autosub.online`,
+  `AutoSub runs your Reddit DM outreach on autopilot. you set your keywords and offer, it finds people who need what you sell and messages them 24/7. built it myself and use it for all my products. $47/month at autosub.online`,
 ];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
