@@ -2,6 +2,7 @@ require("dotenv").config();
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const POSTED_PATH = "./posted_servers.json";
+const BANNED_PATH = "./banned_servers.json";
 const LOG_PATH = "./discord_bot.log";
 const MAX_POSTS_PER_CYCLE = 25;
 const MIN_DELAY_MS = 3 * 60 * 1000;
@@ -24,29 +25,24 @@ const DEVHIRE_POSTS = [
   `dev for hire. python, flask, node.js, puppeteer, openai API, stripe. built live production projects including a google maps SaaS and cold email pipeline. 48hr delivery, flat fee. DM me`,
 ];
 const MAPZAP_POSTS = [
-  `built a tool that pulls 100 local business leads from Google Maps in 60 seconds as a CSV. type a business type and city, get names, phones, addresses, websites instantly. $49/month unlimited searches, free preview at mapzap.org`,
-  `mapzap.org pulls 100 local business leads in 60 seconds. name, phone, address, website as a downloadable CSV. $49/month unlimited, free preview no card needed. useful for cold outreach, prospecting, agency lead gen`,
-  `sharing something useful for anyone doing cold outreach or lead gen. mapzap.org scrapes 100 local businesses from Google Maps in 60 seconds. CSV with name, phone, address, website. $49/month unlimited`,
-  `built mapzap.org for cold outreach prospecting. type any business niche and city, get 100 leads as a CSV instantly. $49/month unlimited, free preview available`,
+  `built a tool that pulls 100 local business leads from Google Maps in 60 seconds as a CSV. type a business type and city, get names, phones, addresses, websites, and emails where available instantly. $19.99/month unlimited searches, free preview at mapzap.org`,
+  `mapzap.org pulls 100 local business leads in 60 seconds. name, phone, address, website, email as a downloadable CSV. $19.99/month unlimited, free preview no card needed. useful for cold outreach, prospecting, agency lead gen`,
+  `sharing something useful for anyone doing cold outreach or lead gen. mapzap.org scrapes 100 local businesses from Google Maps in 60 seconds, emails included. CSV with name, phone, address, website. $19.99/month unlimited`,
+  `built mapzap.org for cold outreach prospecting. type any business niche and city, get 100 leads as a CSV instantly with emails where available. $19.99/month unlimited, free preview available`,
 ];
-const CALLDONE_POSTS = [
-  `built an AI receptionist for local businesses that answers every call 24/7. handles FAQs, captures leads, books appointments, texts you a summary after every call. $500/month, no setup fee, live in 48hrs. demo: call (563) 287-1146 or visit calldone.org`,
-  `if you run a business and miss calls when you're busy or closed — calldone.org answers every call 24/7, sounds like a real person, captures every lead. $500/month flat, cancel anytime. hear it live: (563) 287-1146`,
-  `sharing something for any business owner who loses customers from missed calls. CallDone is an AI receptionist that answers 24/7, trained on your business, texts you after every call. $500/month no contracts. calldone.org`,
-  `built calldone.org for small business owners. AI receptionist answers every call 24/7, handles questions, captures caller info, texts you a summary instantly. $500/month, live in 48 hours, no setup fee. demo: (563) 287-1146`,
-];
-const AGENCYHIRE_POSTS = [
-  `built an automated outreach system that sends 1000+ targeted messages per day across Reddit, Facebook, Discord, and X. finds buyers in your niche, messages them automatically, runs 24/7. deploying it for agencies this week. $1,500 flat fee, 48 hour setup, $500/month retainer. proof it works: mapzap.org. DM me if interested or start here: https://buy.stripe.com/9B6eVd7vteL23kedQ22Ry0d`,
-  `if you run an agency and do outreach manually this might help. i built a 7-channel automation stack that hits Reddit, Facebook, Discord, and X simultaneously. 1000+ targeted messages per day to verified buyers. $1,500 to deploy on your accounts in 48 hours. $500/month to keep it running. built and proved on my own products: mapzap.org. DM me a scope`,
-  `scale your agency outreach without hiring anyone. automated system targets your niche across Reddit, Facebook, Discord, and X. sends 1000+ messages per day to people actively looking for your service. $1,500 setup, 48hr delivery, $500/month retainer. https://buy.stripe.com/9B6eVd7vteL23kedQ22Ry0d`,
-  `automate what you're doing manually for your clients. full outreach stack deployed on your agency accounts in 48 hours. Reddit DMs, Facebook group comments, Discord posts, X replies all running 24/7. $1,500 flat, $500/month after. proof: mapzap.org. DM me`,
+const FLOWMATE_POSTS = [
+  `built something for local service businesses, plumbers, HVAC, roofers, electricians. roughly 78% of customers go with whoever responds first, so slow follow up loses leads to competitors. flowmate.live automatically texts and emails every new lead within 60 seconds, runs 24/7. i build it and run it for you. $297 first month, $797/month after. flowmate.live`,
+  `if you run a local service business and aren't responding to leads instantly, you're losing most of them. flowmate.live fixes that, automated text and email follow up within 60 seconds, done for you, no software to learn. $297 first month, $797/month after.`,
+  `sharing flowmate.live for contractors and local service businesses. auto texts and emails every new lead within 60 seconds so you stop losing business to whoever calls back first. think of it like a GoHighLevel setup except i build and run it for you. $297 first month, $797/month ongoing.`,
+  `this solves a lead response problem, not a marketing problem. flowmate.live texts and emails every new lead within 60 seconds, 24/7, done for you. $297 to try the first month, $797/month after. flowmate.live`,
 ];
 const AUTOSUB_POSTS = [
-  `built a tool called AutoSub that automates your Reddit outreach. connect your Reddit account, set your offer and target keywords, it finds buyers posting on Reddit and DMs them automatically 24/7. 200+ targeted messages per day. $47/month, cancel anytime. autosub.online`,
-  `if you do cold outreach on Reddit manually this might save you hours every day. AutoSub finds people actively posting about needing what you sell and DMs them for you automatically. set it up once, runs forever. $47/month at autosub.online`,
-  `sharing something for agency owners and freelancers doing Reddit outreach. AutoSub automates the whole thing. scrapes Reddit globally for buyer intent posts, sends your DM automatically, shows you replies in a live dashboard. $47/month. autosub.online`,
-  `AutoSub runs your Reddit DM outreach on autopilot. you set your keywords and offer, it finds people who need what you sell and messages them 24/7. built it myself and use it for all my products. $47/month at autosub.online`,
+  `built a tool called AutoSub that automates your Reddit outreach. connect your Reddit account, set your offer and target keywords, it finds buyers posting on Reddit and DMs them automatically 24/7. 200+ targeted messages per day. $19.99/month, cancel anytime. autosub.online`,
+  `if you do cold outreach on Reddit manually this might save you hours every day. AutoSub finds people actively posting about needing what you sell and DMs them for you automatically. set it up once, runs forever. $19.99/month at autosub.online`,
+  `sharing something for agency owners and freelancers doing Reddit outreach. AutoSub automates the whole thing. scrapes Reddit globally for buyer intent posts, sends your DM automatically, shows you replies in a live dashboard. $19.99/month. autosub.online`,
+  `AutoSub runs your Reddit DM outreach on autopilot. you set your keywords and offer, it finds people who need what you sell and messages them 24/7. built it myself and use it for all my products. $19.99/month at autosub.online`,
 ];
+const PRODUCT_POOLS = [DEVHIRE_POSTS, MAPZAP_POSTS, FLOWMATE_POSTS, AUTOSUB_POSTS];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -61,6 +57,13 @@ function loadPosted() {
 }
 function savePosted(posted) {
   fs.writeFileSync(POSTED_PATH, JSON.stringify(posted, null, 2));
+}
+function loadBanned() {
+  if (!fs.existsSync(BANNED_PATH)) return [];
+  try { return JSON.parse(fs.readFileSync(BANNED_PATH)); } catch { return []; }
+}
+function saveBanned(banned) {
+  fs.writeFileSync(BANNED_PATH, JSON.stringify(banned, null, 2));
 }
 function wasPostedRecently(posted, key) {
   if (!posted[key]) return false;
@@ -153,6 +156,7 @@ async function findAndPostInServer(page, server, postText, posted) {
 }
 async function runCycle() {
   const posted = loadPosted();
+  const banned = loadBanned();
   let postsThisCycle = 0;
   const browser = await puppeteer.launch({
     headless: false,
@@ -165,26 +169,29 @@ async function runCycle() {
   await page.setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
   try {
     await loadSession(page);
-    const servers = await getJoinedServers(page);
+    let servers = await getJoinedServers(page);
+    servers = servers.filter(s => !banned.includes(s.id));
     servers.sort(() => Math.random() - 0.5);
     for (const server of servers) {
       if (postsThisCycle >= MAX_POSTS_PER_CYCLE) {
         log("INFO", `Hit max posts (${MAX_POSTS_PER_CYCLE}). Stopping.`);
         break;
       }
-      // Rotate DEVHIRE, MAPZAP, CALLDONE, AGENCYHIRE, AUTOSUB evenly
-      const rotation = postsThisCycle % 5;
-      let postText;
-      if (rotation === 0) postText = pick(DEVHIRE_POSTS);
-      else if (rotation === 1) postText = pick(MAPZAP_POSTS);
-      else if (rotation === 2) postText = pick(CALLDONE_POSTS);
-      else if (rotation === 3) postText = pick(AGENCYHIRE_POSTS);
-      else postText = pick(AUTOSUB_POSTS);
+      // Rotate DEVHIRE, MAPZAP, FLOWMATE, AUTOSUB evenly. PRODUCT_POOLS.length keeps
+      // this in sync automatically if a product is ever added or removed again.
+      const rotation = postsThisCycle % PRODUCT_POOLS.length;
+      const postText = pick(PRODUCT_POOLS[rotation]);
       const result = await findAndPostInServer(page, server, postText, posted);
       if (result === "posted") {
         postsThisCycle++;
         log("INFO", `${postsThisCycle}/${MAX_POSTS_PER_CYCLE} posts. Waiting ${Math.round(MIN_DELAY_MS/60000)} to ${Math.round(MAX_DELAY_MS/60000)}min...`);
         await sleep(rand(MIN_DELAY_MS, MAX_DELAY_MS));
+      } else if (result === "error") {
+        if (!banned.includes(server.id)) {
+          banned.push(server.id);
+          saveBanned(banned);
+          log("BANNED", `Marking ${server.name} as banned/unreachable, skipping in future cycles`);
+        }
       }
       await sleep(rand(2000, 4000));
     }
